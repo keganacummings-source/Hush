@@ -1,0 +1,48 @@
+name: Build KyotoVST
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+      - name: Build
+        run: cmake --build build --config Release --parallel --target KyotoVST_VST3
+      - name: Package
+        shell: pwsh
+        run: |
+          $b = Get-ChildItem -Path build -Recurse -Directory -Filter "KyotoVST.vst3" | Where-Object { $_.FullName -match 'VST3' } | Select-Object -First 1
+          if (-not $b) { throw "KyotoVST.vst3 not found" }
+          New-Item -ItemType Directory -Force -Path stage | Out-Null
+          Copy-Item -Recurse $b.FullName stage
+          tar -a -c -f KyotoVST-Windows-VST3.zip -C stage "KyotoVST.vst3"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KyotoVST-Windows-VST3
+          path: KyotoVST-Windows-VST3.zip
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+      - name: Build
+        run: cmake --build build --config Release --parallel --target KyotoVST_VST3
+      - name: Package
+        run: |
+          set -euo pipefail
+          B=$(find build -type d -name 'KyotoVST.vst3' | head -n 1)
+          [ -n "$B" ] || { echo "KyotoVST.vst3 not found"; exit 1; }
+          ditto -c -k --keepParent "$B" KyotoVST-macOS-VST3.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KyotoVST-macOS-VST3
+          path: KyotoVST-macOS-VST3.zip
+          if-no-files-found: error
