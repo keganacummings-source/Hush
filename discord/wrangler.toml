@@ -1,0 +1,22 @@
+# DreamShare Discord bridge — deploy this folder as its own Cloudflare Worker.
+#   cd discord && npx wrangler deploy
+# Secrets (never in this file): npx wrangler secret put <NAME>
+#   DISCORD_BOT_TOKEN, DISCORD_PUBLIC_KEY, DISCORD_APP_ID, DISCORD_OWNER_ID,
+#   DISCORD_GUILD_ID, DISCORD_RELAY_CHANNEL, DREAMSHARE_BRIDGE_KEY
+# See discord/README.md for the whole setup.
+
+name = "dreamshare-discord"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+
+# The Discord API lives on DreamShare (VST live chat).
+[vars]
+DREAMSHARE_API = "https://dreamshare-api.keganacummings.workers.dev"
+
+[[durable_objects.bindings]]
+name = "GATEWAY"
+class_name = "DiscordGateway"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DiscordGateway"]

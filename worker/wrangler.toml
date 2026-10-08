@@ -1,0 +1,12 @@
+# Local development config for the DreamShare worker (worker.js).
+# `npx wrangler dev` runs locally with an in-memory/simulated DREAMSHARE_KV
+# binding — no Cloudflare account needed for local dev.
+# Deploying to production is done by pasting worker.js into the Cloudflare
+# dashboard (see README) — this file is for local dev only.
+name = "dreamshare"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+
+[[kv_namespaces]]
+binding = "DREAMSHARE_KV"
+id = "local-dreamshare-kv"

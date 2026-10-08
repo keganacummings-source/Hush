@@ -1,0 +1,11 @@
+{
+  "name": "kyotrippah-dev",
+  "private": true,
+  "description": "Local dev tooling for the DreamShare Cloudflare Worker (worker.js).",
+  "scripts": {
+    "dev": "wrangler dev --port 3000 --ip 0.0.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
