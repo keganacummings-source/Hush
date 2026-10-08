@@ -36,8 +36,12 @@ DreamResult postAction(const juce::String& action, juce::var body, const juce::S
 // channelId empty = Kyoto #general. "mainstreet" is the virtual DreamShare live chat.
 DreamResult getDiscordMessages(const juce::String& token);
 DreamResult getDiscordMessages(const juce::String& token, const juce::String& channelId);
+// One merged live feed of the last messages across every channel the bot can see.
+DreamResult getDiscordStream(const juce::String& token);
 DreamResult sendDiscordMessage(const juce::String& token, const juce::String& user, const juce::String& text);
 DreamResult sendDiscordMessage(const juce::String& token, const juce::String& user, const juce::String& text, const juce::String& channelId);
+// Reply to a specific message in its channel (posts a real Discord reply through the bot).
+DreamResult replyDiscordMessage(const juce::String& token, const juce::String& user, const juce::String& text, const juce::String& channelId, const juce::String& replyTo);
 DreamResult getDiscordStatus(const juce::String& token);
 DreamResult getDiscordChannels(const juce::String& token);
 

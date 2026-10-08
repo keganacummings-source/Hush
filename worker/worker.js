@@ -1002,15 +1002,65 @@ async function discordLite(env, action, body) {
       return { ok: false, status: 400, error: 'Use DreamShare chat for Mainstreet' };
     }
     const content = formatDreamShareDiscordContent(dreamUser, text);
-    const sent = await call('/channels/' + channel + '/messages', 'POST', { content: content });
+    const payload = { content: content };
+    if (body.replyTo) payload.message_reference = { message_id: String(body.replyTo), fail_if_not_exists: false };
+    const sent = await call('/channels/' + channel + '/messages', 'POST', payload);
     if (!sent.ok) return sent;
     return {
       ok: true,
       id: sent.data && sent.data.id,
       postsAs: 'bot',
       channel: channel,
+      replyTo: body.replyTo ? String(body.replyTo) : '',
       attributedTo: dreamUser || 'KyotoSpxrit'
     };
+  }
+
+  // One merged stream of the newest messages across every channel the bot can see.
+  // Each message is labelled with its server, channel and user. No notifications — the
+  // VST just polls this. Also answers the "/VST3" command in-channel with the build link.
+  if (action === 'discord_stream') {
+    const per = Math.max(3, Math.min(25, Number((body && body.per) || 10)));
+    const VST3_LINK = 'https://github.com/keganacummings-source/Hush/actions';
+    const chans = [];
+    for (const g of KYOTO_DISCORD_GUILDS) {
+      const res = await call('/guilds/' + g.id + '/channels', 'GET');
+      if (!res.ok) continue;
+      const list = Array.isArray(res.data) ? res.data : [];
+      for (const c of list.filter((c) => c && (c.type === 0 || c.type === 5)))
+        chans.push({ id: String(c.id), name: String(c.name || 'channel'), server: g.name, tag: g.tag });
+    }
+    if (!chans.length) chans.push({ id: defaultChannel, name: 'general', server: 'Kyoto', tag: 'KYTO' });
+
+    const out = [];
+    for (const ch of chans) {
+      const msgs = await call('/channels/' + ch.id + '/messages?limit=' + per, 'GET');
+      if (!msgs.ok) continue;
+      const arr = Array.isArray(msgs.data) ? msgs.data : [];
+      // /VST3 command: reply once with the build link if not already answered.
+      for (const m of arr) {
+        const c = String((m && m.content) || '').trim();
+        const isCmd = /^[\/!]?vst3$/i.test(c);
+        const isBot = !!(m.author && m.author.bot);
+        if (isCmd && !isBot) {
+          const answered = arr.some((x) => x.message_reference && String(x.message_reference.message_id) === String(m.id));
+          if (!answered) {
+            try { await call('/channels/' + ch.id + '/messages', 'POST', { content: 'Latest KyotoVST3 build -> ' + VST3_LINK, message_reference: { message_id: String(m.id), fail_if_not_exists: false } }); } catch (e) {}
+          }
+        }
+      }
+      for (const m of arr) {
+        const parsed = parseDreamShareDiscordMessage(m, ch.tag);
+        parsed.server = ch.server;
+        parsed.channel = ch.name;
+        parsed.channelId = ch.id;
+        parsed.bot = !!(m.author && m.author.bot);
+        parsed.ts = Date.parse((m && m.timestamp) || '') || 0;
+        out.push(parsed);
+      }
+    }
+    out.sort((a, b) => a.ts - b.ts);
+    return { ok: true, stream: true, messages: out.slice(-80) };
   }
 
   if (action === 'discord_react') {
@@ -2278,7 +2328,7 @@ export default {
 
         // Native Discord #general (bot sees General chat; VST never holds the token)
         if (action === 'discord_status' || action === 'discord_channels'
-            || action === 'discord_messages' || action === 'discord_send'
+            || action === 'discord_messages' || action === 'discord_stream' || action === 'discord_send'
             || action === 'discord_react') {
           const r = await discordLite(env, action, body || {});
           const status = r.status || (r.ok ? 200 : 400);

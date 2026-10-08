@@ -8,12 +8,12 @@
 class Library : public juce::Component, private juce::ListBoxModel
 {
 public:
-    std::function<void (bool machine, int index)> onPick;
+    std::function<void (int kind, int index)> onPick;   // kind: 0 fx, 1 machine, 2 widget
     Library();
     void resized() override;
     void paint (juce::Graphics&) override;
 private:
-    struct Item { bool machine; int index; };
+    struct Item { int kind; int index; };
     std::vector<Item> items;
     juce::TextEditor search;
     juce::ComboBox filter;

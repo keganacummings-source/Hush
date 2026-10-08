@@ -8,6 +8,7 @@ Library::Library()
     search.onTextChange = [this] { rebuild(); };
     filter.addItem ("ALL UNITS", 1);
     filter.addItem ("ALL MACHINES (" + juce::String (kv::kMachineCount) + ")", 2);
+    filter.addItem ("WIDGETS (" + juce::String (kv::kWidgetCount) + ")", 3);
     for (int c = 0; c < kv::NumMachineCats; ++c) filter.addItem ("MACHINES: " + juce::String (kv::kMachineCatNames[c]).toUpperCase(), 30 + c);
     for (int f = 0; f < kt::kFxFamilyCount; ++f) filter.addItem (juce::String (kt::kFxFamilyNames[f]).toUpperCase(), 10 + f);
     filter.setSelectedId (1, juce::dontSendNotification);
@@ -27,10 +28,14 @@ void Library::rebuild()
     if (sel <= 2 || machineCat)
         for (int i = 0; i < kv::kMachineCount; ++i)
             if ((! machineCat || kv::kMachines[i].cat == sel - 30) && (match (kv::kMachines[i].name) || match (kv::kMachines[i].era) || match (kv::kMachineCatNames[kv::kMachines[i].cat])))
-                items.push_back ({ true, i });
+                items.push_back ({ 1, i });
+    if (sel == 1 || sel == 3)
+        for (int i = 0; i < kv::kWidgetCount; ++i)
+            if (match (kv::kWidgets[i].name) || match (kv::kWidgets[i].blurb))
+                items.push_back ({ 2, i });
     if (sel == 1 || (sel >= 10 && sel < 30))
         for (int i = 0; i < kt::kFxCount; ++i)
-            if ((sel == 1 || sel - 10 == kt::kFx[i].family) && match (kt::kFx[i].name)) items.push_back ({ false, i });
+            if ((sel == 1 || sel - 10 == kt::kFx[i].family) && match (kt::kFx[i].name)) items.push_back ({ 0, i });
     list.updateContent(); repaint();
 }
 
@@ -54,28 +59,30 @@ void Library::paintListBoxItem (int row, juce::Graphics& g, int w, int h, bool s
 {
     if (row < 0 || row >= (int) items.size()) return;
     const auto it = items[(size_t) row];
+    const bool isFx = it.kind == 0, isMachine = it.kind == 1, isWidget = it.kind == 2;
     auto r = juce::Rectangle<float> (0, 0, (float) w, (float) h).reduced (1.0f, 2.0f);
     if (selected) { g.setColour (ui::accent().withAlpha (0.18f)); g.fillRoundedRectangle (r, 3.0f); }
-    ui::pill (g, r.removeFromLeft (16.0f).reduced (2.0f, 6.0f), it.machine ? ui::hot() : ui::family (kt::kFx[it.index].family));
+    ui::pill (g, r.removeFromLeft (16.0f).reduced (2.0f, 6.0f), isFx ? ui::family (kt::kFx[it.index].family) : isWidget ? ui::accent().interpolatedWith (ui::hot(), 0.5f) : ui::hot());
     r.removeFromLeft (8.0f);
-    g.setColour (ui::text()); g.setFont (ui::hud (13.5f, it.machine));
-    g.drawText (it.machine ? juce::String (kv::kMachines[it.index].name).toUpperCase() : juce::String (kt::kFx[it.index].name),
-                r.removeFromLeft (r.getWidth() * 0.62f), juce::Justification::centredLeft, true);
+    const juce::String name = isFx ? juce::String (kt::kFx[it.index].name) : isWidget ? juce::String (kv::kWidgets[it.index].name) : juce::String (kv::kMachines[it.index].name).toUpperCase();
+    const juce::String meta = isFx ? juce::String (kt::fxFamilyName (kt::kFx[it.index].family)).toUpperCase() : isWidget ? juce::String ("WIDGET") : juce::String (kv::kMachines[it.index].era);
+    g.setColour (ui::text()); g.setFont (ui::hud (13.5f, ! isFx));
+    g.drawText (name, r.removeFromLeft (r.getWidth() * 0.62f), juce::Justification::centredLeft, true);
     g.setColour (ui::muted()); g.setFont (ui::hud (10.5f, false));
-    g.drawText (it.machine ? juce::String (kv::kMachines[it.index].era) : juce::String (kt::fxFamilyName (kt::kFx[it.index].family)).toUpperCase(),
-                r.withTrimmedRight (4.0f), juce::Justification::centredRight, true);
+    g.drawText (meta, r.withTrimmedRight (4.0f), juce::Justification::centredRight, true);
 }
 
 void Library::listBoxItemDoubleClicked (int row, const juce::MouseEvent&)
 {
-    if (row >= 0 && row < (int) items.size() && onPick) onPick (items[(size_t) row].machine, items[(size_t) row].index);
+    if (row >= 0 && row < (int) items.size() && onPick) onPick (items[(size_t) row].kind, items[(size_t) row].index);
 }
 
 juce::var Library::getDragSourceDescription (const juce::SparseSet<int>& rows)
 {
     if (rows.isEmpty() || rows[0] >= (int) items.size()) return {};
     const auto it = items[(size_t) rows[0]];
-    return (it.machine ? "machine:" : "fx:") + juce::String (it.index);
+    const char* pre = it.kind == 1 ? "machine:" : it.kind == 2 ? "widget:" : "fx:";
+    return pre + juce::String (it.index);
 }
 
 // ================= Inspector =================
@@ -166,7 +173,7 @@ void Inspector::paint (juce::Graphics& g)
 
 // ================= Editor =================
 KyotoEditor::KyotoEditor (KyotoProcessor& p)
-    : AudioProcessorEditor (p), proc (p), canvas (p.rack), viewer (p.rack), inspector (p.rack), dream (p)
+    : AudioProcessorEditor (p), proc (p), canvas (p.rack), viewer (p), inspector (p.rack), dream (p)
 {
     setLookAndFeel (&lnf);
     canvas.onPatchChanged = [this] { proc.rack.commit(); };
@@ -174,7 +181,7 @@ KyotoEditor::KyotoEditor (KyotoProcessor& p)
     canvas.onSelect = [this] (int id) { inspector.setNode (id); };
     inspector.onEdited = [this] { canvas.repaint(); };
     inspector.onRemove = [this] { proc.rack.removeNode (canvas.selected); canvas.changed(); canvas.select (kv::kIn); };
-    library.onPick = [this] (bool m, int i) { if (m) canvas.addMachine (i, canvas.addPoint()); else canvas.addFx (i, canvas.addPoint()); };
+    library.onPick = [this] (int k, int i) { if (k == 1) canvas.addMachine (i, canvas.addPoint()); else if (k == 2) canvas.addWidget (i, canvas.addPoint()); else canvas.addFx (i, canvas.addPoint()); };
     dream.onStatus = [this] (const juce::String& s) { setStatus (s); };
     dream.onPatchLoaded = [this] { patchLoaded(); showTab (Bay); };
 

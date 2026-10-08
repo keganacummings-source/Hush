@@ -2,6 +2,7 @@
 #include "Ui.h"
 #include "Rack.h"
 #include "Machines.h"
+#include "Widgets.h"
 
 // Patch bay: modules are hardware cards, cables run from an OUT jack (right) to an IN jack (left).
 // Right-click is the designer: rename, faceplate colour, knob face, viewer visibility, routing tools.
@@ -35,6 +36,14 @@ public:
     {
         auto ids = rack.addMachine (kv::kMachines[m].recipe, at.x, at.y);
         for (auto id : ids) if (auto* n = rack.find (id)) { n->label = kv::kMachines[m].name; clampNode (*n); }
+        changed();
+        if (! ids.isEmpty()) select (ids.getFirst());
+    }
+
+    void addWidget (int wIdx, juce::Point<float> at)
+    {
+        auto ids = rack.addMachine (kv::kWidgets[wIdx].recipe, at.x, at.y);
+        for (auto id : ids) if (auto* n = rack.find (id)) { n->label = kv::kWidgets[wIdx].name; clampNode (*n); }
         changed();
         if (! ids.isEmpty()) select (ids.getFirst());
     }
@@ -118,7 +127,9 @@ public:
         const auto s = d.description.toString();
         const int idx = s.fromFirstOccurrenceOf (":", false, false).getIntValue();
         const auto at = d.localPosition.toFloat() - juce::Point<float> (kW * 0.5f, kH * 0.5f);
-        if (s.startsWith ("fx:")) addFx (idx, at); else addMachine (idx, at);
+        if (s.startsWith ("fx:")) addFx (idx, at);
+        else if (s.startsWith ("widget:")) addWidget (idx, at);
+        else addMachine (idx, at);
     }
 
     static juce::Colour nodeColour (const kv::Node& n)
@@ -305,12 +316,14 @@ private:
 
     void canvasMenu (juce::Point<float> at)
     {
-        juce::PopupMenu m, machines;
+        juce::PopupMenu m, machines, widgets;
         juce::PopupMenu fam[kt::kFxFamilyCount], cats[kv::NumMachineCats];
         for (int i = 0; i < kt::kFxCount; ++i) fam[kt::kFx[i].family].addItem (1000 + i, kt::kFx[i].name);
         for (int i = 0; i < kv::kMachineCount; ++i) cats[kv::kMachines[i].cat].addItem (500 + i, juce::String (kv::kMachines[i].name) + "   -   " + kv::kMachines[i].era);
         for (int c = 0; c < kv::NumMachineCats; ++c) machines.addSubMenu (kv::kMachineCatNames[c], cats[c]);
+        for (int i = 0; i < kv::kWidgetCount; ++i) widgets.addItem (700 + i, juce::String (kv::kWidgets[i].name) + "   -   " + kv::kWidgets[i].blurb);
         m.addSectionHeader ("PATCH BAY DESIGNER");
+        m.addSubMenu ("Add widget", widgets);
         m.addSubMenu ("Add machine", machines);
         for (int f = 0; f < kt::kFxFamilyCount; ++f) m.addSubMenu ("Add " + juce::String (kt::kFxFamilyNames[f]), fam[f]);
         m.addSeparator();
@@ -322,6 +335,7 @@ private:
         m.showMenuAsync (juce::PopupMenu::Options(), [sp, at] (int r) {
             if (sp == nullptr || r == 0) return;
             if (r >= 1000) sp->addFx (r - 1000, at);
+            else if (r >= 700) sp->addWidget (r - 700, at);
             else if (r >= 500) sp->addMachine (r - 500, at);
             else if (r == 1) { sp->rack.autoChain(); sp->changed(); }
             else if (r == 2) { for (auto& n : sp->rack.nodes) n.hidden = false; sp->design(); }

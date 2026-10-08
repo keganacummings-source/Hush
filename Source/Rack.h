@@ -27,8 +27,9 @@ struct NodeParams
     std::atomic<float> mix { 1.0f }, level { 1.0f }, depth { 0.5f };
     std::atomic<int> macro { -1 };
     std::atomic<bool> bypass { false };
+    std::atomic<float> vu { 0.0f };   // live output level of this node (for the Viewer), audio-thread write / UI read
     NodeParams() { reset(); }
-    void reset() { for (auto& v : p) v = 0.5f; mix = 1.0f; level = 1.0f; depth = 0.5f; macro = -1; bypass = false; }
+    void reset() { for (auto& v : p) v = 0.5f; mix = 1.0f; level = 1.0f; depth = 0.5f; macro = -1; bypass = false; vu = 0.0f; }
     void copyFrom (const NodeParams& o) { for (int i = 0; i < 4; ++i) p[i] = o.p[i].load(); mix = o.mix.load(); level = o.level.load(); depth = o.depth.load(); macro = o.macro.load(); bypass = o.bypass.load(); }
 };
 
@@ -41,6 +42,7 @@ class Rack
 public:
     std::vector<Node> nodes;
     std::vector<Wire> wires;
+    std::atomic<float> outVu { 0.0f };   // live master output level for the Viewer
 
     int addNode (int fx, float x, float y)
     {
@@ -230,6 +232,7 @@ public:
             const int m = p.macro.load();
             if (m >= 0 && m < kMacros) a[0] = juce::jlimit (0.0f, 1.0f, a[0] + (macros[m] - 0.5f) * 2.0f * p.depth.load());
             const float mix = p.mix.load(), lvl = p.level.load();
+            float pk = 0.0f;
             for (size_t i = 0; i < (size_t) n; ++i)
             {
                 float wr = 0.0f;
@@ -237,9 +240,17 @@ public:
                 const float wl = dsp.processOne (c.st, c.fx, a[0], a[1], a[2], a[3], dl, dr, wr);
                 c.l[i] = (dl + (wl - dl) * mix) * lvl;
                 c.r[i] = (dr + (wr - dr) * mix) * lvl;
+                const float m = juce::jmax (std::abs (c.l[i]), std::abs (c.r[i]));
+                if (m > pk) pk = m;
             }
+            // Smoothed peak for the Viewer: fast attack, slow release (audio thread write only).
+            const float prev = p.vu.load();
+            p.vu.store (pk > prev ? pk : prev * 0.82f + pk * 0.18f);
         }
         gather (prog, prog.outSrcs, L, R, n);
+        float opk = 0.0f;
+        for (int i = 0; i < n; ++i) opk = juce::jmax (opk, juce::jmax (std::abs (L[i]), std::abs (R[i])));
+        outVu.store (opk > outVu.load() ? opk : outVu.load() * 0.82f + opk * 0.18f);
     }
 
 private:

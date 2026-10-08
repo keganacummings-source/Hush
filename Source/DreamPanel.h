@@ -8,7 +8,7 @@
 class DreamPanel : public juce::Component, private juce::ListBoxModel, private juce::Timer
 {
 public:
-    enum Ch { Lounge, Threads, Catalog, Mine, Pending, Presets, Friends, Discord, NumCh };
+    enum Ch { Lounge, Threads, Catalog, Mine, Pending, Presets, Friends, Community, Discord, NumCh };
     std::function<void (const juce::String&)> onStatus;
     std::function<void()> onPatchLoaded;
 
@@ -21,7 +21,7 @@ public:
         input.onReturnKey = [this] { primary(); };
         pass.onReturnKey = [this] { doLogin(); };
         addAndMakeVisible (loginBtn); loginBtn.onClick = [this] { doLogin(); };
-        const char* names[] = { "LOUNGE", "THREADS", "CATALOG", "MY MODULES", "PENDING", "CLOUD PRESETS", "FRIENDS / DM", "DISCORD" };
+        const char* names[] = { "LOUNGE", "THREADS", "CATALOG", "MY MODULES", "PENDING", "CLOUD PRESETS", "FRIENDS / DM", "COMMUNITY BUILT", "DISCORD" };
         for (int i = 0; i < NumCh; ++i)
         {
             auto* b = chBtns.add (new juce::TextButton (names[i]));
@@ -95,6 +95,11 @@ private:
     juce::String peer;
     bool busy = false;
     juce::Array<juce::var> discordChannels;
+    std::unique_ptr<juce::FileChooser> chooser;
+
+    static juce::File presetFolderFile() { return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("KyotoSpxrit").getChildFile ("preset_autosave_dir.txt"); }
+    static juce::File autosaveDir() { auto f = presetFolderFile(); if (f.existsAsFile()) { juce::File d (f.loadFileAsString().trim()); if (d.getFullPathName().isNotEmpty()) return d; } return {}; }
+    static void setAutosaveDir (const juce::File& d) { auto f = presetFolderFile(); f.getParentDirectory().createDirectory(); f.replaceWithText (d.getFullPathName()); }
 
     juce::String tok() const { return proc.sessionToken; }
     void status (const juce::String& s) { if (onStatus) onStatus (s); }
@@ -136,14 +141,13 @@ private:
         static const char* labels[NumCh][4] = {
             { "SEND", "", "", "" }, { "NEW THREAD", "REPLY", "REACT +1", "DELETE" },
             { "PUBLISH", "LOAD", "TAG", "UNTAG" }, { "PUBLISH", "LOAD", "DELETE", "" },
-            { "", "APPROVE", "DENY", "LOAD" }, { "SAVE", "LOAD", "DELETE", "" },
-            { "SEND DM", "ADD FRIEND", "ACCEPT", "REMOVE" }, { "SEND", "", "", "" } };
+            { "", "APPROVE", "DENY", "LOAD" }, { "SAVE + SHARE", "LOAD", "DELETE", "SET FOLDER" },
+            { "SEND DM", "ADD FRIEND", "ACCEPT", "REMOVE" }, { "SHARE THIS RACK", "LOAD", "", "" }, { "SEND", "", "", "" } };
         sendBtn.setButtonText (labels[c][0]); sendBtn.setVisible (labels[c][0][0] != 0);
         input.setVisible (sendBtn.isVisible() || c == Catalog || c == Friends);
         juce::TextButton* acts[] = { &actA, &actB, &actC };
         for (int i = 0; i < 3; ++i) { acts[i]->setButtonText (labels[c][i + 1]); acts[i]->setVisible (labels[c][i + 1][0] != 0); }
-        discordCh.setVisible (c == Discord);
-        if (c == Discord && discordCh.getNumItems() > 0) { discordCh.setSelectedItemIndex (0, juce::dontSendNotification); peer = discordChannels[0]["id"].toString(); }
+        discordCh.setVisible (false);
         resized(); refresh();
     }
 
@@ -163,7 +167,8 @@ private:
                 case Pending: return kt::getPendingModules (t);
                 case Presets: return kt::postAction ("preset_list", obj ({ { "machine", "kyotovst" } }), t);
                 case Friends: return pr.isNotEmpty() ? kt::getDM (t, pr) : kt::postAction ("friends_list", {}, t);
-                default:      return kt::getDiscordMessages (t, pr);
+                case Community: return kt::getCatalogTagged (t, "community");
+                default:      return kt::getDiscordStream (t);
             }
         }, [this, c] (const kt::DreamResult& r) { if (c == channel) fill (r); });
     }
@@ -180,6 +185,14 @@ private:
         else
             for (auto* k : { "messages", "chat", "threads", "modules", "presets" })
                 if (auto* a = r.parsed[k].getArray()) { for (auto& v : *a) rows.push_back (toRow (v, false)); break; }
+        if (channel == Discord)
+            for (auto& row : rows)
+            {
+                const auto srv = row.raw["server"].toString();
+                const auto chn = row.raw["channel"].toString();
+                const auto tag = row.raw["tag"].toString();
+                row.meta = (srv.isNotEmpty() ? srv.toUpperCase() : tag.toUpperCase()) + (chn.isNotEmpty() ? "  #" + chn : "");
+            }
         list.updateContent();
         if ((channel == Lounge || channel == Discord || channel == Friends) && ! rows.empty()) list.scrollToEnsureRowIsOnscreen ((int) rows.size() - 1);
         repaint();
@@ -221,10 +234,24 @@ private:
         g.setColour (ui::text()); g.setFont (ui::hud (14.0f, false));
         g.drawText (row.text, r.withTrimmedRight (8.0f), juce::Justification::centredLeft, true);
     }
+    void listBoxItemClicked (int row, const juce::MouseEvent& e) override
+    {
+        if (channel != Discord || ! e.mods.isPopupMenu() || row < 0 || row >= (int) rows.size()) return;
+        list.selectRow (row);
+        auto& rowRef = rows[(size_t) row];
+        const auto who = rowRef.who, mid = rowRef.id, chId = rowRef.raw["channelId"].toString();
+        juce::PopupMenu m;
+        m.addSectionHeader (who.toUpperCase());
+        m.addItem (1, "Reply to " + who);
+        juce::Component::SafePointer<DreamPanel> sp (this);
+        m.showMenuAsync (juce::PopupMenu::Options(), [sp, who, mid, chId] (int r) {
+            if (sp != nullptr && r == 1) sp->replyTo (who, mid, chId);
+        });
+    }
     void listBoxItemDoubleClicked (int, const juce::MouseEvent&) override
     {
         if (channel == Friends && peer.isEmpty() && sel()) { peer = sel()->who.isNotEmpty() ? sel()->who : sel()->id; rows.clear(); refresh(); }
-        else if (channel == Catalog || channel == Mine || channel == Presets) action (0);
+        else if (channel == Catalog || channel == Mine || channel == Presets || channel == Community) action (0);
         else if (channel == Pending) action (2);
     }
 
@@ -247,6 +274,42 @@ private:
 
     void done (const kt::DreamResult& r, const juce::String& okMsg) { status (r.ok ? okMsg : "DreamShare: " + r.error); if (r.ok) refresh(); }
 
+    void communityPublish (const juce::String& rawName)
+    {
+        if (tok().isEmpty()) { status ("Sign in to share"); return; }
+        const auto name = rawName.trim().isNotEmpty() ? rawName.trim() : "KyotoVST " + juce::Time::getCurrentTime().formatted ("%H%M%S");
+        const auto t = tok();
+        auto* m = new juce::DynamicObject();
+        m->setProperty ("format", "kyoteppah-module-1"); m->setProperty ("face", "chain");
+        m->setProperty ("name", name); m->setProperty ("theme", proc.themeId);
+        m->setProperty ("tags", juce::Array<juce::var> { "kyotovst", "community" });
+        m->setProperty ("machineDesign", proc.rack.toVar());
+        const auto body = juce::JSON::toString (juce::var (m));
+        net ([t, name, body] { return kt::publishModule (t, name, body); },
+             [this] (const kt::DreamResult& r) { status (r.ok ? "Shared to Community Built" : "Share failed: " + r.error); });
+    }
+
+    void saveLocalPreset (const juce::String& name, const juce::String& state)
+    {
+        auto dir = autosaveDir();
+        if (dir.getFullPathName().isEmpty()) return;
+        dir.createDirectory();
+        dir.getChildFile (juce::File::createLegalFileName (name) + ".kyoto").replaceWithText (state);
+    }
+
+    void setFolder()
+    {
+        auto start = autosaveDir().getFullPathName().isNotEmpty() ? autosaveDir() : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+        chooser = std::make_unique<juce::FileChooser> ("Choose a folder to auto-save your Kyoto presets", start);
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+            [this] (const juce::FileChooser& fc) {
+                auto f = fc.getResult();
+                if (f == juce::File()) return;
+                setAutosaveDir (f);
+                status ("Preset auto-save folder set: " + f.getFileName());
+            });
+    }
+
     juce::var modulePayload (const juce::String& name) const
     {
         auto* m = new juce::DynamicObject();
@@ -267,11 +330,29 @@ private:
         });
     }
 
+    void replyTo (const juce::String& who, const juce::String& messageId, const juce::String& channelId)
+    {
+        if (tok().isEmpty()) { status ("Sign in first"); return; }
+        auto* w = new juce::AlertWindow ("REPLY TO " + who.toUpperCase(), "Sent to Discord as a reply from your DreamShare name", juce::MessageBoxIconType::NoIcon);
+        w->addTextEditor ("msg", "");
+        w->addButton ("SEND", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        w->addButton ("CANCEL", 0);
+        juce::Component::SafePointer<DreamPanel> sp (this);
+        w->enterModalState (true, juce::ModalCallbackFunction::create ([sp, w, messageId, channelId] (int res) {
+            if (sp == nullptr || res != 1) return;
+            const auto text = w->getTextEditorContents ("msg").trim();
+            if (text.isEmpty()) return;
+            const auto t = sp->tok(), u = sp->proc.sessionUser;
+            sp->net ([t, u, text, channelId, messageId] { return kt::replyDiscordMessage (t, u, text, channelId, messageId); },
+                     [sp] (const kt::DreamResult& r) { sp->done (r, "Reply sent to Discord"); });
+        }), true);
+    }
+
     void primary()
     {
         if (tok().isEmpty()) { status ("Sign in first"); return; }
         const auto t = tok(), text = input.getText().trim(), pr = peer, u = proc.sessionUser;
-        if (text.isEmpty() && channel != Presets) { status ("Type a name or message first"); return; }
+        if (text.isEmpty() && channel != Presets && channel != Community) { status ("Type a name or message first"); return; }
         input.clear();
         switch (channel)
         {
@@ -287,9 +368,14 @@ private:
             {
                 const auto name = text.isNotEmpty() ? text : "KyotoVST " + juce::Time::getCurrentTime().formatted ("%H%M%S");
                 const auto state = proc.patchJson();
+                saveLocalPreset (name, state);               // one-time folder auto-save (if set)
                 net ([=] { return kt::postAction ("preset_save", obj ({ { "machine", "kyotovst" }, { "name", name }, { "state", state } }), t); }, [this] (auto r) { done (r, "Preset saved to cloud"); });
+                communityPublish (name);                     // auto-share a copy to Community Built
                 break;
             }
+            case Community:
+                communityPublish (text);
+                break;
             case Friends:
                 if (pr.isEmpty()) { status ("Double-click a friend to open DMs"); return; }
                 net ([=] { return kt::sendDM (t, pr, text); }, [this] (auto r) { done (r, "DM sent"); }); break;
@@ -303,6 +389,7 @@ private:
         const auto t = tok(); const auto* s = sel();
         const auto text = input.getText().trim();
         if (channel == Friends && slot == 0) { net ([=] { return kt::friendRequest (t, "friend_request", text); }, [this] (auto r) { done (r, "Friend request sent"); }); return; }
+        if (channel == Presets && slot == 2) { setFolder(); return; }
         if (s == nullptr) { status ("Select an entry first"); return; }
         const auto id = s->id, who = s->who;
         switch (channel * 4 + slot)
@@ -310,7 +397,7 @@ private:
             case Threads * 4 + 0: net ([=] { return kt::postAction ("comment", obj ({ { "threadId", id }, { "text", text } }), t); }, [this] (auto r) { input.clear(); done (r, "Reply posted"); }); break;
             case Threads * 4 + 1: net ([=] { return kt::react (t, "thread", id, "+1"); }, [this] (auto r) { done (r, "Reacted"); }); break;
             case Threads * 4 + 2: net ([=] { return kt::postAction ("delete_thread", obj ({ { "id", id }, { "threadId", id } }), t); }, [this] (auto r) { done (r, "Thread deleted"); }); break;
-            case Catalog * 4 + 0: case Mine * 4 + 0: case Pending * 4 + 2: loadModule (id); break;
+            case Catalog * 4 + 0: case Mine * 4 + 0: case Pending * 4 + 2: case Community * 4 + 0: loadModule (id); break;
             case Catalog * 4 + 1: net ([=] { return kt::tagModule (t, id, text); }, [this] (auto r) { done (r, "Tagged"); }); break;
             case Catalog * 4 + 2: net ([=] { return kt::postAction ("module_untag", obj ({ { "id", id }, { "tag", text } }), t); }, [this] (auto r) { done (r, "Tag removed"); }); break;
             case Mine * 4 + 1: net ([=] { return kt::deleteModule (t, id); }, [this] (auto r) { done (r, "Module deleted"); }); break;

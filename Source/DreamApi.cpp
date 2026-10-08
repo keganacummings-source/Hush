@@ -234,6 +234,25 @@ DreamResult getDiscordMessages(const juce::String& token, const juce::String& ch
     return postAction("discord_messages", juce::var(o), token);
 }
 
+DreamResult getDiscordStream(const juce::String& token)
+{
+    auto* o = new juce::DynamicObject();
+    o->setProperty("per", 10);
+    return postAction("discord_stream", juce::var(o), token);
+}
+
+DreamResult replyDiscordMessage(const juce::String& token, const juce::String& user, const juce::String& text, const juce::String& channelId, const juce::String& replyTo)
+{
+    auto* o = new juce::DynamicObject();
+    o->setProperty("user", user);
+    o->setProperty("text", text);
+    if (channelId.isNotEmpty())
+        o->setProperty("channel", channelId);
+    if (replyTo.isNotEmpty())
+        o->setProperty("replyTo", replyTo);
+    return postAction("discord_send", juce::var(o), token);
+}
+
 DreamResult sendDiscordMessage(const juce::String& token, const juce::String& user, const juce::String& text)
 {
     return sendDiscordMessage(token, user, text, {});

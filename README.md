@@ -1,6 +1,6 @@
 # KyotoVST
 
-Modular FX builder in VST3 format (JUCE 8, C++17). You get 200 DSP units and 125 multi-stage machines (studio racks, stompboxes, tape & echo, space, modular, broken tech, alien tech). You wire them together into any series or parallel graph, then play the result in the full-screen **Viewer**. **DreamShare** (DreamAPI) and the **Discord bridge** are built in.
+Modular FX builder in VST3 format (JUCE 8, C++17). You get 200 DSP units, 125 multi-stage machines, and one-drag **Widgets** (packaged behaviours like a time chopper or a reversed forward-echo panner). You wire them into any series or parallel graph, then hit the **Viewer** to see every effect fuse into ONE procedurally-built machine whose parts (scopes, speakers, valves, tape reels, coils, lamp banks, VU gauges, grilles) are chosen from your effects, detailed by their numeric values, and animated by live audio. **DreamShare** (DreamAPI), a unified **Discord** stream, and cloud/community preset sharing are built in.
 
 ## Repository layout
 ```
@@ -41,9 +41,17 @@ To use a local JUCE checkout, add `-DKYOTO_JUCE_DIR=/path/to/JUCE`.
   - On a module: rename, faceplate colour, knob face (machined / LED ring / chicken-head), show in Viewer, bypass, duplicate, re-insert into the chain, disconnect, remove.
   - On empty space: add any unit or machine at that spot, auto-chain, show all in Viewer, reset faceplates, clear.
 - **Inspector** (right): Amount / Tone / Motion / Shape / Mix / Level for the selected module. You can also assign its Amount to Macro 1-4 and set a depth.
-- **Viewer**: hides the builder and shows only your machine, one faceplate per stage, with live controls.
+- **Viewer**: fuses every placed effect into one machine. Each FX becomes a fixed hardware part (so the same effect always grows the same part — you learn the machine by its pieces), detailed with procedural decals gated by the effect's Amount/Tone/Motion/Shape/Mix, and the screens, speakers, lamps, needles and reels react to live audio. Parts: `Source/Parts.h`.
+- **Widgets** (`Source/Widgets.h`): one-drag behaviour units — drop a single item and the line becomes a time chopper, reversed forward-echo panner, sidechain pumper, etc. Found in the library under "WIDGETS" and in the right-click designer "Add widget".
 - **Console** (bottom): Input, Mix, Output, and Macro 1-4. All of these can be automated from the DAW.
 - **Export / Import**: `.kyoto` patch files.
+
+## Sharing & community
+- **Cloud Presets**: *Save + Share* saves to your DreamShare cloud, auto-writes a `.kyoto` to your chosen folder, and auto-publishes a copy to **Community Built** for everyone. *Set Folder* is a one-time pick of the auto-save folder.
+- **Community Built**: browse and load presets other people shared. *Share This Rack* uploads your current build.
+
+## Discord (unified stream)
+The Discord tab shows the newest messages from every channel the bot can see, merged into one stream and labelled by server, channel and user — no notification spam. **Right-click any message to reply**; the reply is posted back to that Discord channel through the bot as your DreamShare name. Anyone who types **`/VST3`** (or `!vst3`) in a watched channel gets an automatic reply with the latest build link: https://github.com/keganacummings-source/Hush/actions
 
 ## DreamShare (DreamAPI)
 Sign in with your DreamShare account. Each channel uses the DreamAPI actions listed here:
